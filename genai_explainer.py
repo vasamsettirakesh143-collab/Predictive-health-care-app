@@ -3,17 +3,18 @@ genai_explainer.py
 Turns a numeric ML risk score + contributing factors into a personalised,
 human-readable explanation.
 
-If an ANTHROPIC_API_KEY environment variable is set on Render, this calls
-the real Claude API for a genuinely generated explanation (the "GenAI"
-part of the project). If no key is set, it falls back to a rule-based
-template so the app still works out of the box with zero configuration.
+If a GROQ_API_KEY environment variable is set on Render, this calls the
+real Groq API (OpenAI-compatible chat completions) for a genuinely
+generated explanation (the "GenAI" part of the project). If no key is
+set, it falls back to a rule-based template so the app still works out
+of the box with zero configuration.
 """
 import os
 import requests
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
 def _template_explanation(probability, factors, patient):
@@ -47,7 +48,7 @@ def generate_explanation(probability, factors, patient):
     factors: list of (feature_name, importance) sorted by importance desc
     patient: dict of the raw submitted patient values
     """
-    if not ANTHROPIC_API_KEY:
+    if not GROQ_API_KEY:
         return _template_explanation(probability, factors, patient), "template"
 
     top_factors_str = ", ".join(f"{name} (importance {imp:.2f})" for name, imp in factors[:4])
@@ -61,14 +62,13 @@ def generate_explanation(probability, factors, patient):
     )
     try:
         resp = requests.post(
-            ANTHROPIC_URL,
+            GROQ_URL,
             headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
             },
             json={
-                "model": ANTHROPIC_MODEL,
+                "model": GROQ_MODEL,
                 "max_tokens": 400,
                 "messages": [{"role": "user", "content": prompt}],
             },
@@ -76,7 +76,7 @@ def generate_explanation(probability, factors, patient):
         )
         resp.raise_for_status()
         data = resp.json()
-        text = "".join(block.get("text", "") for block in data.get("content", []))
+        text = data["choices"][0]["message"]["content"]
         return text.strip(), "llm"
     except Exception as e:
         # Never let an API failure break the app -- fall back gracefully.
